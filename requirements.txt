@@ -1,0 +1,6 @@
+python-dotenv
+pytest
+rich
+
+groq
+google-genai
