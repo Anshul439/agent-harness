@@ -8,12 +8,15 @@ from agent.types import LLMResponse, ToolCall, ToolSpec
 
 class GroqProvider(LLMProvider):
 
-    def __init__(self, client: Groq, tools: dict[str, ToolSpec], model: str = "openai/gpt-oss-120b"):
+    def __init__(self, client: Groq, tools: dict[str, ToolSpec], model: str = "openai/gpt-oss-120b", system_prompt: str | None = None):
         self.client = client
         self.tools = tools
         self.model = model
         # Groq has no chat object — we manage history ourselves as a plain list.
+        # System prompt, if given, is the first and only permanent entry.
         self.messages = []
+        if system_prompt:
+            self.messages.append({"role": "system", "content": system_prompt})
 
     def send_message(self, message) -> LLMResponse:
         self.messages.append({"role": "user", "content": message})

@@ -6,20 +6,20 @@ from agent.types import LLMResponse, ToolCall, ToolSpec
 
 class GeminiProvider(LLMProvider):
 
-    def __init__(self, client, tools: dict[str, ToolSpec], model: str = "gemini-3.8-flash"):
+    def __init__(self, client, tools: dict[str, ToolSpec], model: str = "gemini-3.8-flash", system_prompt: str | None = None):
         self.client = client  # hold reference so it isn't garbage collected
-        self.chat = client.chats.create(
-            model=model,
-            config={
-                "tools": [
-                    _to_gemini_tool(tool)
-                    for tool in tools.values()
-                ],
-                "automatic_function_calling": {
-                    "disable": True
-                },
+        config = {
+            "tools": [
+                _to_gemini_tool(tool)
+                for tool in tools.values()
+            ],
+            "automatic_function_calling": {
+                "disable": True
             },
-        )
+        }
+        if system_prompt:
+            config["system_instruction"] = system_prompt
+        self.chat = client.chats.create(model=model, config=config)
 
     def send_message(self, message) -> LLMResponse:
         response = self.chat.send_message(message)
