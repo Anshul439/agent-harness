@@ -2,7 +2,7 @@ import pytest
 
 from agent.loop import Agent
 from agent.tools import tools
-from agent.types import LLMResponse, ToolCall, TurnLimitError
+from agent.types import LLMResponse, ToolCall, ProviderError, TurnLimitError
 
 
 class LoopingProvider:
@@ -51,3 +51,44 @@ def test_custom_max_turns_is_respected():
     agent = Agent(LoopingProvider(), tools, max_turns=1)
     with pytest.raises(TurnLimitError):
         agent.run("loop forever")
+
+
+class FlakyProvider:
+    """Fails on the first call, succeeds on the retry."""
+
+    def __init__(self):
+        self.attempts = 0
+
+    def send_message(self, message):
+        self.attempts += 1
+        if self.attempts == 1:
+            raise RuntimeError("503 transient error")
+        return LLMResponse(text="recovered", tool_calls=[])
+
+    def send_tool_results(self, results):
+        return LLMResponse(text="done", tool_calls=[])
+
+
+class AlwaysFailingProvider:
+    """Always raises — simulates a permanently broken provider."""
+
+    def send_message(self, message):
+        raise RuntimeError("connection refused")
+
+    def send_tool_results(self, results):
+        raise RuntimeError("connection refused")
+
+
+def test_provider_recovers_on_retry(monkeypatch):
+    # Skip the real 5-second sleep so tests stay fast.
+    monkeypatch.setattr("agent.loop.time.sleep", lambda s: None)
+    agent = Agent(FlakyProvider(), tools)
+    result = agent.run("do something")
+    assert result == "recovered"
+
+
+def test_provider_raises_provider_error_after_retry(monkeypatch):
+    monkeypatch.setattr("agent.loop.time.sleep", lambda s: None)
+    agent = Agent(AlwaysFailingProvider(), tools)
+    with pytest.raises(ProviderError, match="Provider failed after retry"):
+        agent.run("do something")

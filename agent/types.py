@@ -7,6 +7,11 @@ class TurnLimitError(RuntimeError):
     pass
 
 
+class ProviderError(RuntimeError):
+    """Raised when the LLM provider fails and does not recover after a retry."""
+    pass
+
+
 @dataclass
 class ToolCall:
     id: str

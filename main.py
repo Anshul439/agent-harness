@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from agent.loop import Agent
 from agent.providers import get_provider
 from agent.tools import tools
+from agent.types import ProviderError, TurnLimitError
 
 
 load_dotenv()
@@ -23,10 +24,15 @@ provider = get_provider(tools, system_prompt=SYSTEM_PROMPT)
 
 agent = Agent(provider, tools)
 
-result = agent.run(
-    'Change the login function so that when user is falsy, it returns "login failed" instead of "failed".'
-)
-
 from rich.console import Console
 console = Console(highlight=False)
-console.print(f"\n[bold]done.[/] {result}")
+
+try:
+    result = agent.run(
+        'Change the login function so that when user is falsy, it returns "login failed" instead of "failed".'
+    )
+    console.print(f"\n[bold]done.[/] {result}")
+except TurnLimitError as e:
+    console.print(f"\n[bold red]turn limit reached:[/] {e}")
+except ProviderError as e:
+    console.print(f"\n[bold red]provider error:[/] {e}")

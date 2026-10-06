@@ -1,9 +1,10 @@
 import inspect
 import json
+import time
 
 from rich.console import Console
 
-from agent.types import TurnLimitError
+from agent.types import ProviderError, TurnLimitError
 
 console = Console(highlight=False)
 
@@ -16,7 +17,7 @@ class Agent:
         self.max_turns = max_turns
 
     def run(self, task):
-        response = self.provider.send_message(task)
+        response = self._call_provider(self.provider.send_message, task)
 
         turns = 0
         while response.tool_calls:
@@ -42,9 +43,24 @@ class Agent:
 
                 results.append((call, result))
 
-            response = self.provider.send_tool_results(results)
+            response = self._call_provider(self.provider.send_tool_results, results)
 
         return response.text
+
+    def _call_provider(self, fn, *args):
+        """Call fn(*args). On failure, wait 5 s and retry once, then raise ProviderError."""
+        try:
+            return fn(*args)
+        except Exception as error:
+            console.print(f"  [yellow]provider error:[/] {error}")
+            console.print(f"  [yellow]retrying in 5 s...[/]")
+            time.sleep(5)
+            try:
+                return fn(*args)
+            except Exception as retry_error:
+                raise ProviderError(
+                    f"Provider failed after retry: {retry_error}"
+                ) from retry_error
 
     def _execute(self, call):
         """Run a tool call safely. Any failure becomes text the model can read."""
