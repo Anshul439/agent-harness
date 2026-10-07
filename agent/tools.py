@@ -3,6 +3,11 @@ import subprocess
 
 from agent.types import ToolSpec
 
+# Absolute path to the project root. Every file operation is restricted to this tree.
+ROOT = Path(".").resolve()
+
+MAX_LINES = 200
+
 IGNORED_DIRS = {
     ".venv",
     ".git",
@@ -11,9 +16,19 @@ IGNORED_DIRS = {
 }
 
 
+def _safe_path(path: str) -> Path | str:
+    """Resolve a path inside ROOT."""
+    resolved = (ROOT / path).resolve()
+    if not resolved.is_relative_to(ROOT):
+        return f"Error: access denied — '{path}' is outside the project root"
+    return resolved
+
+
 def read_file(path: str):
     """Read the contents of a file."""
-    file_path = Path(path)
+    file_path = _safe_path(path)
+    if isinstance(file_path, str):
+        return file_path
 
     if not file_path.exists():
         return f"File not found: {path}"
@@ -21,7 +36,11 @@ def read_file(path: str):
     if not file_path.is_file():
         return f"Not a file: {path}"
 
-    return file_path.read_text()
+    lines = file_path.read_text().splitlines()
+    if len(lines) > MAX_LINES:
+        preview = "\n".join(lines[:MAX_LINES])
+        return f"{preview}\n\n[file truncated — {len(lines)} total lines, showing first {MAX_LINES}]"
+    return "\n".join(lines)
 
 
 def list_files(directory: str = "."):
@@ -62,11 +81,15 @@ def search_files(query: str):
     if not matches:
         return f"No matches found for: {query}"
 
-    return "\n".join(matches[:100])
+    if len(matches) > 100:
+        return "\n".join(matches[:100]) + f"\n\n[results truncated — showing 100 of {len(matches)} matches]"
+    return "\n".join(matches)
 
 
 def edit_file(path: str, old_text: str, new_text: str):
-    file_path = Path(path)
+    file_path = _safe_path(path)
+    if isinstance(file_path, str):
+        return file_path
 
     if not file_path.exists():
         return f"File not found: {path}"
@@ -74,8 +97,8 @@ def edit_file(path: str, old_text: str, new_text: str):
     if not file_path.is_file():
         return f"Not a file: {path}"
 
-    if any(ignored in file_path.parts for ignored in IGNORED_DIRS):
-        return f"Access denied: {path}"
+    if old_text == new_text:
+        return f"Error: old_text and new_text are identical — no change would be made"
 
     text = file_path.read_text()
 
@@ -88,9 +111,23 @@ def edit_file(path: str, old_text: str, new_text: str):
     return f"Successfully edited {path}"
 
 
+def create_file(path: str, content: str):
+    file_path = _safe_path(path)
+    if isinstance(file_path, str):
+        return file_path
+
+    if file_path.exists():
+        return f"Error: '{path}' already exists. Use edit_file to modify existing files."
+
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_text(content)
+    return f"Created {path}"
+
+
 def run_tests():
     result = subprocess.run(
         ["pytest", "-q"],
+        cwd=ROOT,
         capture_output=True,
         text=True,
         timeout=30,
@@ -148,6 +185,26 @@ tools = {
             "required": ["query"],
         },
         func=search_files,
+    ),
+
+    "create_file": ToolSpec(
+        name="create_file",
+        description="Create a new file with the given content. Fails if the file already exists.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path of the file to create.",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Full content to write into the new file.",
+                },
+            },
+            "required": ["path", "content"],
+        },
+        func=create_file,
     ),
 
     "edit_file": ToolSpec(

@@ -36,9 +36,7 @@ class GeminiProvider(LLMProvider):
             for call, result in results
         ]
 
-        response = self.chat.send_message(
-            types.Content(role="user", parts=parts)
-        )
+        response = self.chat.send_message(parts)
 
         return _parse_response(response)
 
