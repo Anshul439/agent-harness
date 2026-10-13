@@ -56,34 +56,65 @@ def list_files(directory: str = "."):
     return "\n".join(files)
 
 
-def search_files(query: str):
-    matches = []
+def search_files(query: str, extension: str = ""):
+    """Search file contents and include nearby context."""
+    context = 2
+    max_matches = 50
 
-    for path in Path(".").rglob("*"):
-        if (
-            path.is_file()
-            and not any(
-                ignored in path.parts
-                for ignored in IGNORED_DIRS
-            )
-        ):
-            try:
-                text = path.read_text()
-            except (UnicodeDecodeError, OSError):
-                continue
+    blocks = []
 
-            for line_number, line in enumerate(text.splitlines(), 1):
-                if query.lower() in line.lower():
-                    matches.append(
-                        f"{path}:{line_number}: {line.strip()}"
-                    )
+    for path in sorted(ROOT.rglob("*")):
+        if not path.is_file():
+            continue
+        if any(ignored in path.parts for ignored in IGNORED_DIRS):
+            continue
+        if extension and path.suffix != extension:
+            continue
 
-    if not matches:
-        return f"No matches found for: {query}"
+        try:
+            lines = path.read_text().splitlines()
+        except (UnicodeDecodeError, OSError):
+            continue
 
-    if len(matches) > 100:
-        return "\n".join(matches[:100]) + f"\n\n[results truncated — showing 100 of {len(matches)} matches]"
-    return "\n".join(matches)
+        rel = path.relative_to(ROOT)
+
+        # Collect all matching line numbers first, then build non-overlapping blocks.
+        hit_lines = [
+            i for i, line in enumerate(lines, 1)
+            if query.lower() in line.lower()
+        ]
+
+        # Merge hits whose context windows overlap into a single block.
+        merged_ranges = []
+        for hit in hit_lines:
+            start = max(0, hit - 1 - context)
+            end = min(len(lines), hit + context)
+            if merged_ranges and start <= merged_ranges[-1][1]:
+                merged_ranges[-1] = (merged_ranges[-1][0], end, merged_ranges[-1][2] + [hit])
+            else:
+                merged_ranges.append((start, end, [hit]))
+
+        for start, end, hits in merged_ranges:
+            context_lines = []
+            for i, ctx_line in enumerate(lines[start:end], start + 1):
+                prefix = "→ " if i in hits else "  "
+                context_lines.append(f"{rel}:{i}:{prefix}{ctx_line}")
+            blocks.append("\n".join(context_lines))
+
+            if len(blocks) >= max_matches:
+                break
+
+        if len(blocks) >= max_matches:
+            break
+
+    if not blocks:
+        hint = f" with extension '{extension}'" if extension else ""
+        return f"No matches found for: {query}{hint}"
+
+    output = "\n\n".join(blocks)
+    if len(blocks) == max_matches:
+        output += f"\n\n[results truncated — showing {max_matches} matches. Try a more specific query or filter by extension.]"
+    return output
 
 
 def edit_file(path: str, old_text: str, new_text: str):
@@ -173,14 +204,22 @@ tools = {
 
     "search_files": ToolSpec(
         name="search_files",
-        description="Search repository files for a text query.",
+        description=(
+            "Search repository files for a text query. "
+            "Returns matching lines with 2 lines of context above and below. "
+            "Optionally filter by file extension (e.g. '.py', '.md')."
+        ),
         parameters={
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
                     "description": "Text to search for.",
-                }
+                },
+                "extension": {
+                    "type": "string",
+                    "description": "Only search files with this extension, e.g. '.py'. Omit to search all files.",
+                },
             },
             "required": ["query"],
         },

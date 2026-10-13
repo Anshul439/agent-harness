@@ -1,7 +1,4 @@
-import pytest
-from pathlib import Path
-
-from agent.tools import read_file, edit_file, create_file, search_files, ROOT
+from agent.tools import read_file, edit_file, create_file, search_files
 
 def test_read_file_blocks_traversal():
     result = read_file("../../.ssh/id_rsa")
@@ -69,3 +66,46 @@ def test_create_file_creates_missing_parent_dirs(tmp_path, monkeypatch):
     result = create_file("src/utils/helpers.py", "# helpers\n")
     assert result == "Created src/utils/helpers.py"
     assert (tmp_path / "src" / "utils" / "helpers.py").exists()
+
+def test_search_files_shows_context_lines(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent.tools.ROOT", tmp_path)
+
+    (tmp_path / "auth.py").write_text("def setup():\n    pass\n\ndef login(user):\n    return True\n")
+    result = search_files("def login")
+
+    assert "→" in result
+    assert "def setup" in result or "pass" in result
+
+
+def test_search_files_merges_overlapping_blocks(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent.tools.ROOT", tmp_path)
+
+    (tmp_path / "f.py").write_text("login_start\nsome code\nlogin_end\n")
+    result = search_files("login")
+
+    assert result.count("f.py:1") == 1
+    assert result.count("f.py:3") == 1
+    assert "\n\n" not in result
+
+
+def test_search_files_extension_filter(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent.tools.ROOT", tmp_path)
+
+    (tmp_path / "code.py").write_text("def greet(): pass\n")
+    (tmp_path / "notes.md").write_text("greet the user\n")
+
+    py_result = search_files("greet", extension=".py")
+    md_result = search_files("greet", extension=".md")
+
+    assert "code.py" in py_result
+    assert "notes.md" not in py_result
+    assert "notes.md" in md_result
+    assert "code.py" not in md_result
+
+
+def test_search_files_no_match_message(tmp_path, monkeypatch):
+    monkeypatch.setattr("agent.tools.ROOT", tmp_path)
+
+    (tmp_path / "empty.py").write_text("x = 1\n")
+    result = search_files("nonexistent_query_xyz")
+    assert "No matches found" in result
